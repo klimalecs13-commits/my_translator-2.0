@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, user-scalable=no">
+    <title>Переводчик</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="app-container">
+        <!-- Переключатель языка интерфейса -->
+        <div class="lang-switcher" id="langSwitcher">
+            <button class="lang-btn active" data-lang="ru">🇷🇺 Рус</button>
+            <button class="lang-btn" data-lang="es">🇪🇸 Esp</button>
+            <button class="lang-btn" data-lang="en">🇬🇧 Eng</button>
+            <button class="lang-btn" data-lang="fr">🇫🇷 Fra</button>
+            <button class="lang-btn" data-lang="de">🇩🇪 Deu</button>
+            <button class="lang-btn" data-lang="it">🇮🇹 Ita</button>
+            <button class="lang-btn" data-lang="pt">🇵🇹 Por</button>
+            <button class="lang-btn" data-lang="zh">🇨🇳 中文</button>
+            <button class="lang-btn" data-lang="ja">🇯🇵 日本語</button>
+            <button class="lang-btn" data-lang="ar">🇸🇦 العربية</button>
+        </div>
+
+        <h1 id="appTitle">🌍 Переводчик</h1>
+        <div class="sub" id="appSub">Введите текст в любой карточке</div>
+
+        <!-- Загрузка фото для OCR -->
+        <div class="photo-upload">
+            <button id="photoBtn">📷 Загрузить фото для перевода</button>
+            <input type="file" id="imageInput" accept="image/*" style="display: none;">
+            <div id="ocrStatus"></div>
+        </div>
+
+        <!-- Контейнер для динамических карточек -->
+        <div class="cards-grid" id="cardsContainer"></div>
+
+        <!-- Панель управления: добавить язык -->
+        <div class="control-panel">
+            <select id="addLanguageSelect">
+                <option value="ru">🇷🇺 Русский</option>
+                <option value="es">🇪🇸 Español</option>
+                <option value="en">🇬🇧 English</option>
+                <option value="fr">🇫🇷 Français</option>
+                <option value="de">🇩🇪 Deutsch</option>
+                <option value="it">🇮🇹 Italiano</option>
+                <option value="pt">🇵🇹 Português</option>
+                <option value="zh">🇨🇳 中文</option>
+                <option value="ja">🇯🇵 日本語</option>
+                <option value="ar">🇸🇦 العربية</option>
+            </select>
+            <button id="addLangBtn">➕ Добавить язык</button>
+        </div>
+
+        <footer id="appFooter">Ввод в любом поле → перевод в остальные</footer>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
+    <script src="app.js"></script>
+</body>
+</html>
