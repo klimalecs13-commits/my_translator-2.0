@@ -23,6 +23,15 @@ const UI_TRANSLATIONS = {
     remove: "🗑 Удалить",
     placeholder: "Введите текст...",
     photoBtn: "📷 Загрузить фото для перевода",
+    cameraBtn: "📹 Живой перевод (камера)",
+    cameraLoading: "Загружаю модель распознавания...",
+    cameraReady: "Наведите камеру на текст",
+    cameraScanning: "Распознаю текст...",
+    cameraTranslating: "Перевожу...",
+    cameraPaused: "Пауза",
+    cameraError: "Не удалось получить доступ к камере",
+    cameraNeedHttps: "Камера доступна только по https или на localhost",
+    cameraNoText: "Текст не найден",
     ocrProcessing: "Распознаём текст...",
     ocrDone: "Текст распознан",
     ocrError: "Ошибка распознавания",
@@ -65,6 +74,15 @@ const UI_TRANSLATIONS = {
     remove: "🗑 Remove",
     placeholder: "Type text...",
     photoBtn: "📷 Upload photo to translate",
+    cameraBtn: "📹 Live translate (camera)",
+    cameraLoading: "Loading recognition model...",
+    cameraReady: "Point the camera at text",
+    cameraScanning: "Recognizing text...",
+    cameraTranslating: "Translating...",
+    cameraPaused: "Paused",
+    cameraError: "Could not access the camera",
+    cameraNeedHttps: "Camera is available only over https or on localhost",
+    cameraNoText: "No text found",
     ocrProcessing: "Recognizing text...",
     ocrDone: "Text recognized",
     ocrError: "Recognition error",
@@ -239,6 +257,7 @@ const cardsContainer = document.getElementById("cardsContainer");
 const addLangSelect = document.getElementById("addLanguageSelect");
 const addLangBtn = document.getElementById("addLangBtn");
 const photoBtn = document.getElementById("photoBtn");
+const cameraBtn = document.getElementById("cameraBtn");
 const imageInput = document.getElementById("imageInput");
 const ocrStatus = document.getElementById("ocrStatus");
 
@@ -271,6 +290,10 @@ function getFlag(code) {
 
 function getUILang() {
   return currentUILang;
+}
+
+function getUI() {
+  return { ...UI_TRANSLATIONS.en, ...(UI_TRANSLATIONS[currentUILang] || {}) };
 }
 
 function loadState() {
@@ -719,6 +742,7 @@ function setUILanguage(lang) {
   uiElements.footer.textContent = t.footer;
   uiElements.addBtn.textContent = t.addBtn;
   if (photoBtn) photoBtn.textContent = t.photoBtn;
+  if (cameraBtn) cameraBtn.textContent = t.cameraBtn || UI_TRANSLATIONS.en.cameraBtn;
 
   document.querySelectorAll(".lang-btn").forEach((btn) => {
     btn.classList.toggle("active", btn.dataset.lang === lang);
@@ -726,6 +750,445 @@ function setUILanguage(lang) {
 
   renderCards();
   updateLanguageSelect();
+}
+
+// ---------- ЖИВОЙ ПЕРЕВОД С КАМЕРЫ ----------
+const cameraModal = document.getElementById("cameraModal");
+const cameraStage = document.getElementById("cameraStage");
+const cameraVideo = document.getElementById("cameraVideo");
+const cameraOverlay = document.getElementById("cameraOverlay");
+const cameraSourceSelect = document.getElementById("cameraSource");
+const cameraTargetSelect = document.getElementById("cameraTarget");
+const cameraStatus = document.getElementById("cameraStatus");
+const cameraPauseBtn = document.getElementById("cameraPause");
+const cameraCloseBtn = document.getElementById("cameraClose");
+
+const camera = {
+  stream: null,
+  worker: null,
+  workerLang: null,
+  active: false,
+  busy: false,
+  paused: false,
+  source: "ru",
+  target: "en",
+  interval: 1400,
+  timer: null,
+  lastText: "",
+  items: [],
+  frameWidth: 0,
+};
+
+function setCameraStatus(text) {
+  if (cameraStatus) cameraStatus.textContent = text || "";
+}
+
+function populateCameraLangs() {
+  const codes = activeLanguages.slice();
+  if (!codes.length) return;
+
+  if (!codes.includes(camera.source)) camera.source = codes[0];
+  if (!codes.includes(camera.target) || camera.target === camera.source) {
+    camera.target = codes.find((c) => c !== camera.source) || codes[0];
+  }
+
+  const fill = (select, selected) => {
+    select.innerHTML = "";
+    codes.forEach((code) => {
+      const option = document.createElement("option");
+      option.value = code;
+      option.textContent = `${LANGUAGES[code].flag} ${LANGUAGES[code].name}`;
+      select.appendChild(option);
+    });
+    select.value = selected;
+  };
+
+  fill(cameraSourceSelect, camera.source);
+  fill(cameraTargetSelect, camera.target);
+}
+
+async function ensureCameraWorker(langCode) {
+  const tessLang = LANGUAGES[langCode]?.tesseract || "eng";
+  if (camera.worker && camera.workerLang === tessLang) return camera.worker;
+
+  if (camera.worker) {
+    try {
+      await camera.worker.terminate();
+    } catch (e) {}
+    camera.worker = null;
+    camera.workerLang = null;
+  }
+
+  setCameraStatus(getUI().cameraLoading);
+  const worker = await Tesseract.createWorker(tessLang);
+  await worker.setParameters({
+    tessedit_pageseg_mode: "11",
+    preserve_interword_spaces: "1",
+  });
+  camera.worker = worker;
+  camera.workerLang = tessLang;
+  return worker;
+}
+
+function extractCameraLines(data) {
+  const out = [];
+  const push = (line) => {
+    if (!line || !line.bbox) return;
+    const text = (line.text || "").replace(/\s+/g, " ").trim();
+    if (text.length < 2) return;
+    const confidence = typeof line.confidence === "number" ? line.confidence : 100;
+    if (confidence < 35) return;
+    const { x0, y0, x1, y1 } = line.bbox;
+    if (x1 - x0 < 8 || y1 - y0 < 8) return;
+    out.push({ text, bbox: line.bbox, confidence });
+  };
+
+  if (Array.isArray(data.lines) && data.lines.length) {
+    data.lines.forEach(push);
+  } else {
+    (data.blocks || []).forEach((block) =>
+      (block.paragraphs || []).forEach((paragraph) =>
+        (paragraph.lines || []).forEach(push)
+      )
+    );
+  }
+
+  out.sort((a, b) => a.bbox.y0 - b.bbox.y0 || a.bbox.x0 - b.bbox.x0);
+  return out.slice(0, 20);
+}
+
+async function translateCameraLines(texts, from, to) {
+  const result = new Array(texts.length).fill("");
+  const MAX_CHUNK = 420;
+  let i = 0;
+
+  while (i < texts.length) {
+    const chunk = [];
+    let length = 0;
+    let j = i;
+    while (
+      j < texts.length &&
+      chunk.length < 10 &&
+      length + texts[j].length + 1 <= MAX_CHUNK
+    ) {
+      chunk.push(texts[j]);
+      length += texts[j].length + 1;
+      j++;
+    }
+    if (j === i) {
+      chunk.push(texts[i]);
+      j = i + 1;
+    }
+
+    let translated = "";
+    try {
+      translated = await translateText(chunk.join("\n"), from, to);
+    } catch (e) {
+      translated = chunk.join("\n");
+    }
+
+    const parts = translated
+      .split("\n")
+      .map((part) => part.trim())
+      .filter(Boolean);
+
+    if (parts.length === chunk.length) {
+      parts.forEach((part, k) => (result[i + k] = part));
+    } else if (chunk.length === 1) {
+      result[i] = translated.trim();
+    } else {
+      for (let k = 0; k < chunk.length; k++) {
+        try {
+          result[i + k] = (await translateText(chunk[k], from, to)).trim();
+        } catch (e) {
+          result[i + k] = chunk[k];
+        }
+      }
+    }
+
+    i = j;
+  }
+
+  return result;
+}
+
+function roundRectPath(ctx, x, y, w, h, radius) {
+  const r = Math.min(radius, w / 2, h / 2);
+  ctx.beginPath();
+  ctx.moveTo(x + r, y);
+  ctx.arcTo(x + w, y, x + w, y + h, r);
+  ctx.arcTo(x + w, y + h, x, y + h, r);
+  ctx.arcTo(x, y + h, x, y, r);
+  ctx.arcTo(x, y, x + w, y, r);
+  ctx.closePath();
+}
+
+function wrapCanvasText(ctx, text, maxWidth) {
+  const words = text.split(/\s+/).filter(Boolean);
+  if (!words.length) return [""];
+  const lines = [];
+  let current = words[0];
+  for (let i = 1; i < words.length; i++) {
+    const test = `${current} ${words[i]}`;
+    if (ctx.measureText(test).width <= maxWidth) {
+      current = test;
+    } else {
+      lines.push(current);
+      current = words[i];
+    }
+  }
+  lines.push(current);
+  return lines;
+}
+
+function getVideoDisplayRect() {
+  const vw = cameraVideo.videoWidth || 1;
+  const vh = cameraVideo.videoHeight || 1;
+  const cw = cameraStage.clientWidth;
+  const ch = cameraStage.clientHeight;
+  const scale = Math.min(cw / vw, ch / vh);
+  const w = vw * scale;
+  const h = vh * scale;
+  return { x: (cw - w) / 2, y: (ch - h) / 2, w, h };
+}
+
+function drawCameraOverlay(items, scale, offsetX, offsetY) {
+  const ctx = cameraOverlay.getContext("2d");
+  const dpr = window.devicePixelRatio || 1;
+  const cssW = cameraOverlay.clientWidth;
+  const cssH = cameraOverlay.clientHeight;
+  if (!cssW || !cssH) return;
+
+  const pixelW = Math.round(cssW * dpr);
+  const pixelH = Math.round(cssH * dpr);
+  if (cameraOverlay.width !== pixelW || cameraOverlay.height !== pixelH) {
+    cameraOverlay.width = pixelW;
+    cameraOverlay.height = pixelH;
+  }
+
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.clearRect(0, 0, cssW, cssH);
+
+  const rtl = camera.target === "ar";
+  ctx.direction = rtl ? "rtl" : "ltr";
+  ctx.textBaseline = "top";
+
+  items.forEach(({ bbox, text }) => {
+    if (!text) return;
+    const x = offsetX + bbox.x0 * scale;
+    const y = offsetY + bbox.y0 * scale;
+    const w = Math.max(16, (bbox.x1 - bbox.x0) * scale);
+    const h = Math.max(12, (bbox.y1 - bbox.y0) * scale);
+    const padX = 5;
+    const padY = 3;
+    const boxW = w + padX * 2;
+    let boxH = h + padY * 2;
+
+    let fontSize = Math.min(Math.max(h * 0.78, 11), 40);
+    const fontFor = (size) =>
+      `600 ${size}px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif`;
+    ctx.font = fontFor(fontSize);
+    let lines = wrapCanvasText(ctx, text, boxW - padX * 2);
+    let guard = 0;
+    while (
+      (lines.length > 4 ||
+        lines.some((line) => ctx.measureText(line).width > boxW - padX * 2)) &&
+      fontSize > 9 &&
+      guard < 40
+    ) {
+      fontSize -= 1;
+      ctx.font = fontFor(fontSize);
+      lines = wrapCanvasText(ctx, text, boxW - padX * 2);
+      guard++;
+    }
+
+    const lineHeight = fontSize * 1.25;
+    const textHeight = lines.length * lineHeight;
+    if (textHeight + padY * 2 > boxH) boxH = textHeight + padY * 2;
+
+    const bx = x - padX;
+    const by = y - padY;
+
+    ctx.save();
+    ctx.shadowColor = "rgba(0, 0, 0, 0.35)";
+    ctx.shadowBlur = 8;
+    ctx.shadowOffsetY = 2;
+    roundRectPath(ctx, bx, by, boxW, boxH, Math.min(10, boxH / 2));
+    ctx.fillStyle = "rgba(255, 255, 255, 0.93)";
+    ctx.fill();
+    ctx.restore();
+
+    ctx.fillStyle = "rgba(12, 20, 40, 0.95)";
+    ctx.textAlign = rtl ? "right" : "left";
+    const tx = rtl ? bx + boxW - padX : bx + padX;
+    let ty = by + padY + (boxH - padY * 2 - textHeight) / 2;
+    lines.forEach((line) => {
+      ctx.fillText(line, tx, ty);
+      ty += lineHeight;
+    });
+  });
+}
+
+function scheduleCameraScan(delay) {
+  if (camera.timer) clearTimeout(camera.timer);
+  camera.timer = setTimeout(cameraScan, delay);
+}
+
+async function cameraScan() {
+  if (!camera.active || camera.paused || camera.busy) return;
+  if (!cameraVideo.videoWidth) {
+    scheduleCameraScan(300);
+    return;
+  }
+
+  const ui = getUI();
+  camera.busy = true;
+
+  try {
+    const worker = await ensureCameraWorker(camera.source);
+
+    const vw = cameraVideo.videoWidth;
+    const vh = cameraVideo.videoHeight;
+    const pw = Math.min(vw, 1280);
+    const ph = Math.max(1, Math.round((vh * pw) / vw));
+    const frame = camera.frameCanvas || (camera.frameCanvas = document.createElement("canvas"));
+    frame.width = pw;
+    frame.height = ph;
+    frame.getContext("2d").drawImage(cameraVideo, 0, 0, pw, ph);
+    camera.frameWidth = pw;
+
+    setCameraStatus(ui.cameraScanning);
+    const { data } = await worker.recognize(frame);
+    const lines = extractCameraLines(data);
+    const joined = lines.map((line) => line.text).join("|");
+
+    if (!lines.length) {
+      camera.items = [];
+      camera.lastText = "";
+      const rect = getVideoDisplayRect();
+      drawCameraOverlay([], rect.w / pw, rect.x, rect.y);
+      setCameraStatus(ui.cameraNoText);
+      return;
+    }
+
+    if (joined === camera.lastText && camera.items.length) {
+      setCameraStatus("");
+      return;
+    }
+    camera.lastText = joined;
+
+    setCameraStatus(ui.cameraTranslating);
+    const translations = await translateCameraLines(
+      lines.map((line) => line.text),
+      camera.source,
+      camera.target
+    );
+    camera.items = lines
+      .map((line, index) => ({ bbox: line.bbox, text: translations[index] || "" }))
+      .filter((item) => item.text);
+
+    const rect = getVideoDisplayRect();
+    drawCameraOverlay(camera.items, rect.w / pw, rect.x, rect.y);
+    setCameraStatus("");
+  } catch (err) {
+    console.error("Ошибка живого перевода:", err);
+    setCameraStatus(ui.cameraError);
+  } finally {
+    camera.busy = false;
+    if (camera.active && !camera.paused) scheduleCameraScan(camera.interval);
+  }
+}
+
+async function openCamera() {
+  const ui = getUI();
+
+  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+    alert(ui.cameraNeedHttps);
+    return;
+  }
+  if (!window.Tesseract) {
+    alert("Не удалось загрузить OCR-движок. Проверьте подключение к интернету.");
+    return;
+  }
+
+  populateCameraLangs();
+  cameraModal.classList.add("open");
+  camera.active = true;
+  camera.paused = false;
+  camera.lastText = "";
+  camera.items = [];
+  cameraPauseBtn.textContent = "⏸";
+  setCameraStatus(ui.cameraLoading);
+
+  try {
+    camera.stream = await navigator.mediaDevices.getUserMedia({
+      video: {
+        facingMode: { ideal: "environment" },
+        width: { ideal: 1920 },
+        height: { ideal: 1080 },
+      },
+      audio: false,
+    });
+    cameraVideo.srcObject = camera.stream;
+    await cameraVideo.play();
+    setCameraStatus(ui.cameraReady);
+    scheduleCameraScan(400);
+  } catch (err) {
+    console.error("Ошибка камеры:", err);
+    setCameraStatus(ui.cameraError);
+  }
+}
+
+async function closeCamera() {
+  camera.active = false;
+  camera.paused = false;
+
+  if (camera.timer) {
+    clearTimeout(camera.timer);
+    camera.timer = null;
+  }
+  if (camera.stream) {
+    camera.stream.getTracks().forEach((track) => track.stop());
+    camera.stream = null;
+  }
+  cameraVideo.srcObject = null;
+
+  const ctx = cameraOverlay.getContext("2d");
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.clearRect(0, 0, cameraOverlay.width, cameraOverlay.height);
+
+  camera.lastText = "";
+  camera.items = [];
+  camera.frameWidth = 0;
+
+  if (camera.worker) {
+    const worker = camera.worker;
+    camera.worker = null;
+    camera.workerLang = null;
+    try {
+      await worker.terminate();
+    } catch (e) {}
+  }
+
+  cameraModal.classList.remove("open");
+  setCameraStatus("");
+}
+
+function toggleCameraPause() {
+  if (!camera.active) return;
+  camera.paused = !camera.paused;
+  cameraPauseBtn.textContent = camera.paused ? "▶" : "⏸";
+
+  if (camera.paused) {
+    if (camera.timer) {
+      clearTimeout(camera.timer);
+      camera.timer = null;
+    }
+    setCameraStatus(getUI().cameraPaused);
+  } else {
+    setCameraStatus(getUI().cameraReady);
+    scheduleCameraScan(100);
+  }
 }
 
 // ---------- ИНИЦИАЛИЗАЦИЯ ----------
@@ -740,6 +1203,48 @@ function init() {
 
   addLangBtn.addEventListener("click", addLanguage);
   photoBtn.addEventListener("click", handlePhotoUpload);
+
+  if (cameraBtn) cameraBtn.addEventListener("click", openCamera);
+  cameraCloseBtn.addEventListener("click", closeCamera);
+  cameraPauseBtn.addEventListener("click", toggleCameraPause);
+
+  cameraSourceSelect.addEventListener("change", () => {
+    camera.source = cameraSourceSelect.value;
+    if (camera.target === camera.source) {
+      camera.target =
+        activeLanguages.find((code) => code !== camera.source) || camera.target;
+      cameraTargetSelect.value = camera.target;
+    }
+    camera.lastText = "";
+  });
+
+  cameraTargetSelect.addEventListener("change", () => {
+    camera.target = cameraTargetSelect.value;
+    if (camera.source === camera.target) {
+      camera.source =
+        activeLanguages.find((code) => code !== camera.target) || camera.source;
+      cameraSourceSelect.value = camera.source;
+    }
+    camera.lastText = "";
+  });
+
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape" && cameraModal.classList.contains("open")) {
+      closeCamera();
+    }
+  });
+
+  window.addEventListener("resize", () => {
+    if (camera.active && camera.items.length && camera.frameWidth) {
+      const rect = getVideoDisplayRect();
+      drawCameraOverlay(
+        camera.items,
+        rect.w / camera.frameWidth,
+        rect.x,
+        rect.y
+      );
+    }
+  });
 
   renderCards();
   updateLanguageSelect();

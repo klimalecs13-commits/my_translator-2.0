@@ -531,3 +531,157 @@ footer {
     flex: none;
   }
 }
+
+/* ---------- РЕЖИМ ЖИВОЙ КАМЕРЫ ---------- */
+.photo-upload {
+  flex-direction: column;
+  gap: 10px;
+}
+
+.photo-upload button {
+  width: 100%;
+  justify-content: center;
+}
+
+.camera-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 2000;
+  background: #0a0f1e;
+  display: none;
+  flex-direction: column;
+}
+
+.camera-modal.open {
+  display: flex;
+  animation: fadeIn 0.25s ease-out;
+}
+
+.camera-stage {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  background: #000;
+}
+
+#cameraVideo {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  display: block;
+}
+
+#cameraOverlay {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+}
+
+.camera-controls {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px clamp(12px, 4vw, 24px) calc(12px + env(safe-area-inset-bottom, 0px));
+  background: rgba(15, 22, 40, 0.92);
+  backdrop-filter: blur(20px);
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+  flex-wrap: wrap;
+}
+
+.camera-langs {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+  min-width: 220px;
+}
+
+.camera-langs select {
+  flex: 1;
+  min-width: 0;
+  padding: 10px 14px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  background: rgba(255, 255, 255, 0.08);
+  color: white;
+  font-size: 0.85rem;
+  font-weight: 600;
+  cursor: pointer;
+  outline: none;
+}
+
+.camera-langs select:focus {
+  border-color: var(--primary);
+}
+
+.camera-langs option {
+  color: #1a2340;
+  background: white;
+}
+
+.camera-arrow {
+  color: rgba(255, 255, 255, 0.6);
+  font-weight: 700;
+}
+
+.camera-status {
+  flex: 1 0 100%;
+  order: 3;
+  text-align: center;
+  color: rgba(255, 255, 255, 0.75);
+  font-size: 0.8rem;
+  font-weight: 500;
+  min-height: 1.2em;
+}
+
+.camera-buttons {
+  display: flex;
+  gap: 8px;
+}
+
+.camera-buttons button {
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  background: rgba(255, 255, 255, 0.1);
+  color: white;
+  font-size: 1.1rem;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s ease;
+}
+
+.camera-buttons button:hover {
+  background: rgba(255, 255, 255, 0.2);
+}
+
+.camera-buttons button:active {
+  transform: scale(0.92);
+}
+
+#cameraClose {
+  background: rgba(239, 68, 68, 0.2);
+  border-color: rgba(239, 68, 68, 0.4);
+}
+
+#cameraClose:hover {
+  background: rgba(239, 68, 68, 0.35);
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
