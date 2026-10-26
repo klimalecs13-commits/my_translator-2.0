@@ -25,14 +25,6 @@
         <h1 id="appTitle">🌍 Переводчик</h1>
         <div class="sub" id="appSub">Введите текст в любой карточке</div>
 
-        <!-- Загрузка фото и живой перевод с камеры -->
-        <div class="photo-upload">
-            <button id="photoBtn">📷 Загрузить фото для перевода</button>
-            <button id="cameraBtn">📹 Живой перевод (камера)</button>
-            <input type="file" id="imageInput" accept="image/*" style="display: none;">
-            <div id="ocrStatus"></div>
-        </div>
-
         <!-- Контейнер для динамических карточек -->
         <div class="cards-grid" id="cardsContainer"></div>
 
@@ -56,27 +48,6 @@
         <footer id="appFooter">Ввод в любом поле → перевод в остальные</footer>
     </div>
 
-    <!-- Режим живой камеры (как Google Lens) -->
-    <div class="camera-modal" id="cameraModal">
-        <div class="camera-stage" id="cameraStage">
-            <video id="cameraVideo" playsinline autoplay muted></video>
-            <canvas id="cameraOverlay"></canvas>
-        </div>
-        <div class="camera-controls">
-            <div class="camera-langs">
-                <select id="cameraSource" aria-label="Исходный язык"></select>
-                <span class="camera-arrow">→</span>
-                <select id="cameraTarget" aria-label="Язык перевода"></select>
-            </div>
-            <div class="camera-status" id="cameraStatus"></div>
-            <div class="camera-buttons">
-                <button id="cameraPause" title="Пауза">⏸</button>
-                <button id="cameraClose" title="Закрыть">✕</button>
-            </div>
-        </div>
-    </div>
-
-    <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
     <script src="app.js"></script>
 </body>
 </html>
